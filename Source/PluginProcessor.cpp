@@ -20,14 +20,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout BenBocazStudioProProcessor::
     p.push_back (std::make_unique<juce::AudioParameterBool> ("phaseAlign", "Phase Safe Auto-Align", true));
     p.push_back (std::make_unique<juce::AudioParameterBool> ("phaseInvert", "Polarity Invert", false));
 
-    // Emulador de Micrófonos Vocales (OFF por defecto)
+    // Emulador de Micrófonos Vocales con Input y Output independientes (OFF por defecto)
     p.push_back (std::make_unique<juce::AudioParameterBool> ("vocalModOn", "Vocal Mic Mod ON", false));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (
         "vocalSrcMic", "Input Mic", juce::StringArray { "Shure SM27", "Shure SM57", "Shure SM7B", "Generic LDC" }, 2));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (
         "vocalTgtMic", "Target Mic", juce::StringArray { "Sony C-800G", "Neumann TLM 103", "Aston Origin" }, 0));
+    p.push_back (std::make_unique<juce::AudioParameterFloat> ("vocalInGain",  "Mic Mod Input (dB)",  -18.0f, 18.0f, 0.0f));
+    p.push_back (std::make_unique<juce::AudioParameterFloat> ("vocalOutGain", "Mic Mod Output (dB)", -18.0f, 18.0f, 0.0f));
 
-    // Fuente, Monitores y Sala Rústica
+    // Sala Rústica independiente (ON/OFF), Fuente y Monitores
+    p.push_back (std::make_unique<juce::AudioParameterBool> ("roomOn", "Room Stage Power", true));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (
         "source", "Source", juce::StringArray { "Vocals", "Drums", "Ensemble", "Monitors (Swedien)" }, 0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (
@@ -111,7 +114,11 @@ void BenBocazStudioProProcessor::releaseResources() {}
 
 bool BenBocazStudioProProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    return layouts.getMainOutputChannelSet() == juce::AudioChannelSet::stereo();
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+
+    const auto inSet = layouts.getMainInputChannelSet();
+    return inSet == juce::AudioChannelSet::stereo() || inSet == juce::AudioChannelSet::mono();
 }
 
 void BenBocazStudioProProcessor::updateFilters()
@@ -208,68 +215,39 @@ void BenBocazStudioProProcessor::processChamberStage (juce::AudioBuffer<float>& 
 void BenBocazStudioProProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+
+    // Protección para pistas Mono -> Estéreo en Logic Pro: asegura L == R al entrar
+    if (getTotalNumInputChannels() == 1 && buffer.getNumChannels() >= 2)
+        buffer.copyFrom (1, 0, buffer, 0, 0, buffer.getNumSamples());
+
     updateFilters();
 
+    // 1. Emulador Vocal Mic Mod (Input -> Curva + Válvula -> Output), independiente de la sala
     const bool vocalModOn = apvts.getRawParameterValue ("vocalModOn")->load() >= 0.5f;
-    vocalMicModeler.process (buffer, vocalModOn);
+    const float vocalIn   = apvts.getRawParameterValue ("vocalInGain")->load();
+    const float vocalOut  = apvts.getRawParameterValue ("vocalOutGain")->load();
+    vocalMicModeler.process (buffer, vocalModOn, vocalIn, vocalOut);
 
-    srcHpf.processBuffer (buffer);
-    srcMid.processBuffer (buffer);
-    srcLpf.processBuffer (buffer);
+    // 2. Sala Rústica + 4 Atriles (con interruptor ROOM ON independiente)
+    const bool roomOn   = apvts.getRawParameterValue ("roomOn")->load() >= 0.5f;
+    const int sourceIdx = static_cast<int> (apvts.getRawParameterValue ("source")->load());
 
-    MultiMicRoomConfig cfg;
-    cfg.modeIdx     = static_cast<int> (apvts.getRawParameterValue ("mode")->load());
-    cfg.sourceIdx   = static_cast<int> (apvts.getRawParameterValue ("source")->load());
-    cfg.roomIdx     = static_cast<int> (apvts.getRawParameterValue ("room")->load());
-    cfg.wallsLive   = static_cast<int> (apvts.getRawParameterValue ("walls")->load());
-    cfg.phaseSafe   = apvts.getRawParameterValue ("phaseAlign")->load() >= 0.5f;
-    cfg.phaseInvert = apvts.getRawParameterValue ("phaseInvert")->load() >= 0.5f;
+    if (roomOn)
+    {
+        srcHpf.processBuffer (buffer);
+        srcMid.processBuffer (buffer);
+        srcLpf.processBuffer (buffer);
 
-    cfg.micX    = { apvts.getRawParameterValue ("mic1X")->load(), apvts.getRawParameterValue ("mic2X")->load(),
-                    apvts.getRawParameterValue ("mic3X")->load(), apvts.getRawParameterValue ("mic4X")->load() };
-    cfg.micY    = { apvts.getRawParameterValue ("mic1Y")->load(), apvts.getRawParameterValue ("mic2Y")->load(),
-                    apvts.getRawParameterValue ("mic3Y")->load(), apvts.getRawParameterValue ("mic4Y")->load() };
-    cfg.micGain = { apvts.getRawParameterValue ("mic1Gain")->load(), apvts.getRawParameterValue ("mic2Gain")->load(),
-                    apvts.getRawParameterValue ("mic3Gain")->load(), apvts.getRawParameterValue ("mic4Gain")->load() };
+        MultiMicRoomConfig cfg;
+        cfg.modeIdx     = static_cast<int> (apvts.getRawParameterValue ("mode")->load());
+        cfg.sourceIdx   = sourceIdx;
+        cfg.roomIdx     = static_cast<int> (apvts.getRawParameterValue ("room")->load());
+        cfg.wallsLive   = static_cast<int> (apvts.getRawParameterValue ("walls")->load());
+        cfg.phaseSafe   = apvts.getRawParameterValue ("phaseAlign")->load() >= 0.5f;
+        cfg.phaseInvert = apvts.getRawParameterValue ("phaseInvert")->load() >= 0.5f;
 
-    acousticEngine.processMultiMicRoom (buffer, cfg);
-
-    const float drive = apvts.getRawParameterValue ("consoleDrive")->load();
-    analogStage.process (buffer, drive, cfg.sourceIdx == 3);
-
-    const int order = static_cast<int> (apvts.getRawParameterValue ("chainOrder")->load());
-    if (order == 0)      { processConsoleEQ (buffer); processCompressorStage (buffer); processChamberStage (buffer); }
-    else if (order == 1) { processCompressorStage (buffer); processConsoleEQ (buffer); processChamberStage (buffer); }
-    else                 { processChamberStage (buffer); processCompressorStage (buffer); processConsoleEQ (buffer); }
-
-    const float outGain = juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("outputGain")->load());
-    buffer.applyGain (outGain);
-
-    const float rms = 0.5f * (buffer.getRMSLevel (0, 0, buffer.getNumSamples())
-                            + (buffer.getNumChannels() > 1 ? buffer.getRMSLevel (1, 0, buffer.getNumSamples()) : 0.0f));
-    outputVuDb.store (juce::Decibels::gainToDecibels (rms + 1e-6f));
-}
-
-juce::AudioProcessorEditor* BenBocazStudioProProcessor::createEditor()
-{
-    return new BenBocazStudioProEditor (*this);
-}
-
-void BenBocazStudioProProcessor::getStateInformation (juce::MemoryBlock& destData)
-{
-    auto state = apvts.copyState();
-    std::unique_ptr<juce::XmlElement> xml (state.createXml());
-    copyXmlToBinary (*xml, destData);
-}
-
-void BenBocazStudioProProcessor::setStateInformation (const void* data, int sizeInBytes)
-{
-    std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
-    if (xmlState && xmlState->hasTagName (apvts.state.getType()))
-        apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
-}
-
-juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
-{
-    return new BenBocazStudioProProcessor();
-}
+        cfg.micX    = { apvts.getRawParameterValue ("mic1X")->load(), apvts.getRawParameterValue ("mic2X")->load(),
+                        apvts.getRawParameterValue ("mic3X")->load(), apvts.getRawParameterValue ("mic4X")->load() };
+        cfg.micY    = { apvts.getRawParameterValue ("mic1Y")->load(), apvts.getRawParameterValue ("mic2Y")->load(),
+                        apvts.getRawParameterValue ("mic3Y")->load(), apvts.getRawParameterValue ("mic4Y")->load() };
+        cfg.micGain = { apvts.getRawParameterValue ("mic1Gain")->load(), apvts.getRawParameterValue ("mic2Gain")->load(),
