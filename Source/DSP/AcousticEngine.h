@@ -148,7 +148,7 @@ private:
 };
 
 //==============================================================================
-// Configuración de los 4 Atriles de Micrófono en la Sala
+// Configuración de los 4 Atriles de Micrófono y Apertura Estéreo
 //==============================================================================
 struct MultiMicRoomConfig
 {
@@ -158,6 +158,9 @@ struct MultiMicRoomConfig
     int wallsLive = 1;     // 0: Tight, 1: Live
     bool phaseSafe = true;
     bool phaseInvert = false;
+    bool mainStereo = true;
+    float pairSpread = 1.0f; // Apertura estéreo para atriles 2:MID y 3:AIR (0.0 a 1.5)
+    float deccaWidth = 1.0f; // Apertura de alas L/R del Decca Tree (0.2 a 1.5)
 
     std::array<float, 4> micX    { 0.0f, -0.38f, 0.42f, 0.0f };
     std::array<float, 4> micY    { 0.18f, 0.52f, 0.82f, 0.62f };
@@ -165,7 +168,7 @@ struct MultiMicRoomConfig
 };
 
 //==============================================================================
-// Motor Acústico Multi-Atril + Protección de Fase + Cámaras + Custom WAV IR
+// Motor Acústico Multi-Atril + Apertura Estéreo Real + Protección de Fase
 //==============================================================================
 class AcousticEngine
 {
@@ -284,7 +287,10 @@ public:
         const size_t erCeil = static_cast<size_t> (0.0245f * sr);
         const size_t erBack = static_cast<size_t> (0.0320f * sr);
 
-        const float deccaSideOffset = 0.0028f * static_cast<float> (sr);
+        // Apertura física real del Decca Tree (0.3 m a 3.0 m -> 0.8 ms a 8.5 ms)
+        const float deccaSideOffset = juce::jmap (cfg.deccaWidth, 0.2f, 1.5f, 0.0008f, 0.0085f) * static_cast<float> (sr);
+        const float pairW = std::clamp (cfg.pairSpread, 0.0f, 1.5f);
+        const float deccaW = std::clamp (cfg.deccaWidth, 0.2f, 1.5f);
         const float polaritySign = cfg.phaseInvert ? -1.0f : 1.0f;
 
         auto* left  = buffer.getWritePointer (0);
@@ -325,7 +331,7 @@ public:
 
             float mixL = 0.0f, mixR = 0.0f;
 
-            // ATRIL 1: MAIN
+            // ATRIL 1: MAIN (Mono clásico o Par Estéreo Coincidente según MAIN STEREO)
             if (cfg.micGain[0] > 0.001f)
             {
                 const float g = cfg.micGain[0];
@@ -333,16 +339,20 @@ public:
                 const float dirW = juce::jmap (yDist, 0.0f, 1.0f, 0.94f, 0.35f);
                 const float ambW = juce::jmap (yDist, 0.0f, 1.0f, 0.14f, 0.65f);
 
-                const float dirL = cfg.phaseSafe ? srcL : readFrac (erBufL, delaySamples[0]);
-                const float dirR = cfg.phaseSafe ? srcR : readFrac (erBufR, delaySamples[0]);
+                float dirL = cfg.phaseSafe ? srcL : readFrac (erBufL, delaySamples[0]);
+                float dirR = cfg.phaseSafe ? srcR : readFrac (erBufR, delaySamples[0]);
 
-                const float sL = dirL * dirW + (erL * 0.7f + fdnL * 0.5f) * ambW;
-                const float sR = dirR * dirW + (erR * 0.7f + fdnR * 0.5f) * ambW;
+                float sL = dirL * dirW + (erL * 0.7f + fdnL * 0.5f) * ambW;
+                float sR = dirR * dirW + (erR * 0.7f + fdnR * 0.5f) * ambW;
+
+                if (! cfg.mainStereo)
+                    sL = sR = 0.5f * (sL + sR);
+
                 mixL += sL * panL[0] * g;
                 mixR += sR * panR[0] * g;
             }
 
-            // ATRIL 2: MID
+            // ATRIL 2: MID (Par Estéreo Medio con apertura controlada por PAIR WIDE)
             if (cfg.micGain[1] > 0.001f)
             {
                 const float g = cfg.micGain[1] * 0.78f;
@@ -355,11 +365,14 @@ public:
                     mL = apMidL.process (midPhaseHpf.processSample (0, mL));
                     mR = apMidR.process (midPhaseHpf.processSample (1, mR));
                 }
-                mixL += mL * panL[1] * g;
-                mixR += mR * panR[1] * g;
+
+                const float mid  = 0.5f * (mL + mR);
+                const float side = 0.5f * (mL - mR) * pairW;
+                mixL += (mid + side) * panL[1] * g;
+                mixR += (mid - side) * panR[1] * g;
             }
 
-            // ATRIL 3: FAR / AIR
+            // ATRIL 3: FAR / AIR (Par Estéreo Aéreo con apertura controlada por PAIR WIDE)
             if (cfg.micGain[2] > 0.001f)
             {
                 const float g = cfg.micGain[2] * 0.82f;
@@ -376,11 +389,14 @@ public:
                     aL = apAirL.process (airPhaseHpf.processSample (0, aL));
                     aR = apAirR.process (airPhaseHpf.processSample (1, aR));
                 }
-                mixL += aL * panL[2] * g;
-                mixR += aR * panR[2] * g;
+
+                const float mid  = 0.5f * (aL + aR);
+                const float side = 0.5f * (aL - aR) * pairW;
+                mixL += (mid + side) * panL[2] * g;
+                mixR += (mid - side) * panR[2] * g;
             }
 
-            // ATRIL 4: DECCA TREE
+            // ATRIL 4: DECCA TREE (Apertura física de alas L/R controlada por DECCA WIDE)
             if (cfg.micGain[3] > 0.001f)
             {
                 const float g = cfg.micGain[3] * 0.72f;
@@ -389,16 +405,19 @@ public:
                 const float capL = readFrac (erBufL, dBase + deccaSideOffset);
                 const float capR = readFrac (erBufR, dBase + deccaSideOffset);
 
-                float dL = (capL * 0.55f + capC * 0.35f) * 0.42f + erL * 0.65f + fdnL * 0.85f;
-                float dR = (capR * 0.55f + capC * 0.35f) * 0.42f + erR * 0.65f + fdnR * 0.85f;
+                float dL = (capL * 0.58f + capC * 0.34f) * 0.42f + erL * 0.65f + fdnL * 0.85f;
+                float dR = (capR * 0.58f + capC * 0.34f) * 0.42f + erR * 0.65f + fdnR * 0.85f;
 
                 if (cfg.phaseSafe)
                 {
                     dL = deccaPhaseHpf.processSample (0, dL);
                     dR = deccaPhaseHpf.processSample (1, dR);
                 }
-                mixL += dL * panL[3] * g;
-                mixR += dR * panR[3] * g;
+
+                const float mid  = 0.5f * (dL + dR);
+                const float side = 0.5f * (dL - dR) * deccaW;
+                mixL += (mid + side) * panL[3] * g;
+                mixR += (mid - side) * panR[3] * g;
             }
 
             if (cfg.modeIdx == 0)
