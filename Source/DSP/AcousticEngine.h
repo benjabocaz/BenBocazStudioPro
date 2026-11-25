@@ -41,7 +41,7 @@ private:
 };
 
 //==============================================================================
-// Red de Retardos Realimentados Hadamard de 8 Canales (FDN de Alta Densidad)
+// Red de Retardos Realimentados Hadamard de 8 Canales (Simétrica en L y R)
 //==============================================================================
 class HadamardFDN
 {
@@ -128,15 +128,16 @@ public:
             (b0 - b4) * norm, (b1 - b5) * norm, (b2 - b6) * norm, (b3 - b7) * norm
         };
 
+        // Inyección y extracción simétricas en energía y retardo promedio entre L y R
         const float sL = inL * 0.35f, sR = inR * 0.35f;
         lines[0][writePos] = mixed[0] + sL; lines[1][writePos] = mixed[1] + sR;
-        lines[2][writePos] = mixed[2] - sL; lines[3][writePos] = mixed[3] + sR;
-        lines[4][writePos] = mixed[4] + sL; lines[5][writePos] = mixed[5] - sR;
-        lines[6][writePos] = mixed[6] - sL; lines[7][writePos] = mixed[7] - sR;
+        lines[2][writePos] = mixed[2] + sR; lines[3][writePos] = mixed[3] + sL;
+        lines[4][writePos] = mixed[4] - sL; lines[5][writePos] = mixed[5] - sR;
+        lines[6][writePos] = mixed[6] - sR; lines[7][writePos] = mixed[7] - sL;
         writePos = (writePos + 1) & mask;
 
-        outL = 0.32f * (delayed[0] + delayed[2] - delayed[4] + delayed[6]);
-        outR = 0.32f * (delayed[1] - delayed[3] + delayed[5] + delayed[7]);
+        outL = 0.32f * (delayed[0] - delayed[3] + delayed[5] - delayed[6]);
+        outR = 0.32f * (delayed[1] - delayed[2] + delayed[4] - delayed[7]);
     }
 
 private:
@@ -279,10 +280,11 @@ public:
             }
         }
 
-        const size_t erWallL = static_cast<size_t> (0.014f * sr);
-        const size_t erWallR = static_cast<size_t> (0.017f * sr);
-        const size_t erCeil  = static_cast<size_t> (0.023f * sr);
-        const size_t erBack  = static_cast<size_t> (0.031f * sr);
+        // Reflexiones tempranas 100% simétricas en espejo (cero sesgo hacia un lado)
+        const size_t erNear = static_cast<size_t> (0.0145f * sr);
+        const size_t erFar  = static_cast<size_t> (0.0195f * sr);
+        const size_t erCeil = static_cast<size_t> (0.0245f * sr);
+        const size_t erBack = static_cast<size_t> (0.0320f * sr);
 
         const float deccaSideOffset = 0.0028f * static_cast<float> (sr);
         const float polaritySign = cfg.phaseInvert ? -1.0f : 1.0f;
@@ -297,25 +299,35 @@ public:
             const float dryR = right[i];
 
             float srcL = dryL, srcR = dryR;
-            if (cfg.sourceIdx == 0)
+            if (cfg.sourceIdx == 0) // Vocals: fuente puntual centrada
+            {
                 srcL = srcR = 0.5f * (dryL + dryR);
+            }
+            else if (cfg.sourceIdx == 3) // Monitors L/R: cruce acústico natural en el aire del cuarto
+            {
+                srcL = dryL * 0.82f + dryR * 0.18f;
+                srcR = dryR * 0.82f + dryL * 0.18f;
+            }
 
             erBufL[erWritePos] = srcL;
             erBufR[erWritePos] = srcR;
 
-            const float erL = (erBufL[(erWritePos - erWallL) & erMask] * 0.55f
-                             + erBufR[(erWritePos - erCeil)  & erMask] * 0.40f
-                             + erBufL[(erWritePos - erBack)  & erMask] * 0.32f) * wallRef;
-            const float erR = (erBufR[(erWritePos - erWallR) & erMask] * 0.55f
-                             + erBufL[(erWritePos - erCeil)  & erMask] * 0.40f
-                             + erBufR[(erWritePos - erBack)  & erMask] * 0.32f) * wallRef;
+            const float erL = (erBufL[(erWritePos - erNear) & erMask] * 0.42f
+                             + erBufR[(erWritePos - erFar)  & erMask] * 0.32f
+                             + erBufL[(erWritePos - erCeil) & erMask] * 0.30f
+                             + erBufR[(erWritePos - erBack) & erMask] * 0.24f) * wallRef;
+
+            const float erR = (erBufR[(erWritePos - erNear) & erMask] * 0.42f
+                             + erBufL[(erWritePos - erFar)  & erMask] * 0.32f
+                             + erBufR[(erWritePos - erCeil) & erMask] * 0.30f
+                             + erBufL[(erWritePos - erBack) & erMask] * 0.24f) * wallRef;
 
             float fdnL = 0.0f, fdnR = 0.0f;
             roomFdn.processStereo (srcL + erL * 0.35f, srcR + erR * 0.35f, fdnL, fdnR);
 
             float mixL = 0.0f, mixR = 0.0f;
 
-            // ATRIL 1: MAIN
+            // ATRIL 1: MAIN (centrado en Vocals y en Monitors cuando mic1X == 0)
             if (cfg.micGain[0] > 0.001f)
             {
                 const float g = cfg.micGain[0];
@@ -323,19 +335,22 @@ public:
                 const float dirW = juce::jmap (yDist, 0.0f, 1.0f, 0.94f, 0.35f);
                 const float ambW = juce::jmap (yDist, 0.0f, 1.0f, 0.14f, 0.65f);
 
-                const float sL = (cfg.phaseSafe ? dryL : readFrac (erBufL, delaySamples[0])) * dirW + (erL * 0.7f + fdnL * 0.5f) * ambW;
-                const float sR = (cfg.phaseSafe ? dryR : readFrac (erBufR, delaySamples[0])) * dirW + (erR * 0.7f + fdnR * 0.5f) * ambW;
+                const float dirL = cfg.phaseSafe ? srcL : readFrac (erBufL, delaySamples[0]);
+                const float dirR = cfg.phaseSafe ? srcR : readFrac (erBufR, delaySamples[0]);
+
+                const float sL = dirL * dirW + (erL * 0.7f + fdnL * 0.5f) * ambW;
+                const float sR = dirR * dirW + (erR * 0.7f + fdnR * 0.5f) * ambW;
                 mixL += sL * panL[0] * g;
                 mixR += sR * panR[0] * g;
             }
 
-            // ATRIL 2: MID
+            // ATRIL 2: MID (simétrico en retardo, paneo definido por su posición X)
             if (cfg.micGain[1] > 0.001f)
             {
                 const float g = cfg.micGain[1] * 0.78f;
                 const float yDist = cfg.micY[1];
                 float mL = readFrac (erBufL, delaySamples[1]) * (1.0f - yDist * 0.55f) * 0.45f + erL * 0.85f + fdnL * 0.65f;
-                float mR = readFrac (erBufR, delaySamples[1] + 19.0f) * (1.0f - yDist * 0.55f) * 0.45f + erR * 0.85f + fdnR * 0.65f;
+                float mR = readFrac (erBufR, delaySamples[1]) * (1.0f - yDist * 0.55f) * 0.45f + erR * 0.85f + fdnR * 0.65f;
 
                 if (cfg.phaseSafe)
                 {
@@ -346,155 +361,11 @@ public:
                 mixR += mR * panR[1] * g;
             }
 
-            // ATRIL 3: FAR / AIR
+            // ATRIL 3: FAR / AIR (L->L y R->R corregidos)
             if (cfg.micGain[2] > 0.001f)
             {
                 const float g = cfg.micGain[2] * 0.82f;
-                float aL = readFrac (erBufR, delaySamples[2]) * 0.25f + erL * 0.55f + fdnL * 1.15f;
-                float aR = readFrac (erBufL, delaySamples[2] + 37.0f) * 0.25f + erR * 0.55f + fdnR * 1.15f;
+                float aL = readFrac (erBufL, delaySamples[2]) * 0.25f + erL * 0.55f + fdnL * 1.15f;
+                float aR = readFrac (erBufR, delaySamples[2]) * 0.25f + erR * 0.55f + fdnR * 1.15f;
 
-                const float airCoeff = juce::jmap (cfg.micY[2], 0.0f, 1.0f, 0.12f, 0.45f);
-                airLpL = aL * (1.0f - airCoeff) + airLpL * airCoeff;
-                airLpR = aR * (1.0f - airCoeff) + airLpR * airCoeff;
-                aL = airLpL; aR = airLpR;
-
-                if (cfg.phaseSafe)
-                {
-                    aL = apAirL.process (airPhaseHpf.processSample (0, aL));
-                    aR = apAirR.process (airPhaseHpf.processSample (1, aR));
-                }
-                mixL += aL * panL[2] * g;
-                mixR += aR * panR[2] * g;
-            }
-
-            // ATRIL 4: DECCA TREE
-            if (cfg.micGain[3] > 0.001f)
-            {
-                const float g = cfg.micGain[3] * 0.72f;
-                const float dBase = delaySamples[3];
-                const float capC = 0.5f * (readFrac (erBufL, dBase) + readFrac (erBufR, dBase));
-                const float capL = readFrac (erBufL, dBase + deccaSideOffset);
-                const float capR = readFrac (erBufR, dBase + deccaSideOffset * 1.08f);
-
-                float dL = (capL * 0.55f + capC * 0.35f) * 0.42f + erL * 0.65f + fdnL * 0.85f;
-                float dR = (capR * 0.55f + capC * 0.35f) * 0.42f + erR * 0.65f + fdnR * 0.85f;
-
-                if (cfg.phaseSafe)
-                {
-                    dL = deccaPhaseHpf.processSample (0, dL);
-                    dR = deccaPhaseHpf.processSample (1, dR);
-                }
-                mixL += dL * panL[3] * g;
-                mixR += dR * panR[3] * g;
-            }
-
-            if (cfg.modeIdx == 0)
-            {
-                left[i]  = dryL + mixL * 0.55f * polaritySign;
-                right[i] = dryR + mixR * 0.55f * polaritySign;
-            }
-            else
-            {
-                left[i]  = mixL * polaritySign;
-                right[i] = mixR * polaritySign;
-            }
-
-            erWritePos = (erWritePos + 1) & erMask;
-        }
-    }
-
-    void processChamber (juce::AudioBuffer<float>& mainBuffer,
-                         juce::AudioBuffer<float>& scratchBuffer,
-                         bool enabled, int chamberIdx, float sendMix,
-                         float decayNorm, float preDelayMs, float stereoWidth)
-    {
-        if (! enabled || sendMix <= 0.001f || mainBuffer.getNumChannels() < 2) return;
-
-        const int numSamples = mainBuffer.getNumSamples();
-        scratchBuffer.setSize (2, numSamples, false, false, true);
-        scratchBuffer.copyFrom (0, 0, mainBuffer, 0, 0, numSamples);
-        scratchBuffer.copyFrom (1, 0, mainBuffer, 1, 0, numSamples);
-
-        const float delaySamples = std::clamp (preDelayMs * 0.001f * static_cast<float> (sr), 0.0f, 47999.0f);
-        preDelay.setDelay (delaySamples);
-
-        for (int ch = 0; ch < 2; ++ch)
-        {
-            auto* data = scratchBuffer.getWritePointer (ch);
-            for (int i = 0; i < numSamples; ++i)
-            {
-                preDelay.pushSample (ch, data[i]);
-                data[i] = preDelay.popSample (ch);
-            }
-        }
-
-        if (chamberIdx == 4 && customIRLoaded.load())
-        {
-            juce::dsp::AudioBlock<float> block (scratchBuffer);
-            juce::dsp::ProcessContextReplacing<float> ctx (block);
-            customConvolver.process (ctx);
-        }
-        else
-        {
-            static constexpr std::array<std::array<float, 8>, 4> chamberDelays {{
-                { 23.1f, 29.9f, 38.3f, 46.7f, 56.3f, 67.1f, 76.9f, 89.3f },
-                { 31.7f, 39.3f, 48.1f, 58.7f, 68.3f, 79.7f, 92.9f, 107.3f },
-                { 35.9f, 44.3f, 54.7f, 66.1f, 78.7f, 91.9f, 106.3f, 121.7f },
-                { 26.3f, 33.7f, 41.9f, 49.9f, 60.7f, 72.7f, 85.3f, 99.1f }
-            }};
-
-            static constexpr std::array<float, 4> naturalRt60 { 2.9f, 4.2f, 5.1f, 3.6f };
-            static constexpr std::array<float, 4> chamberDamp { 0.24f, 0.34f, 0.44f, 0.30f };
-
-            const size_t idx = static_cast<size_t> (chamberIdx == 4 ? 1 : std::clamp (chamberIdx, 0, 3));
-            chamberFdn.setProfile (chamberDelays[idx], naturalRt60[idx] * decayNorm, chamberDamp[idx], 0.55f);
-
-            auto* chL = scratchBuffer.getWritePointer (0);
-            auto* chR = scratchBuffer.getWritePointer (1);
-            for (int i = 0; i < numSamples; ++i)
-            {
-                float outL = 0.0f, outR = 0.0f;
-                chamberFdn.processStereo (chL[i], chR[i], outL, outR);
-                chL[i] = outL; chR[i] = outR;
-            }
-        }
-
-        auto* sL = scratchBuffer.getWritePointer (0);
-        auto* sR = scratchBuffer.getWritePointer (1);
-        auto* mL = mainBuffer.getWritePointer (0);
-        auto* mR = mainBuffer.getWritePointer (1);
-
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const float mid  = 0.5f * (sL[i] + sR[i]);
-            const float side = 0.5f * (sL[i] - sR[i]) * stereoWidth;
-            mL[i] += (mid + side) * sendMix;
-            mR[i] += (mid - side) * sendMix;
-        }
-    }
-
-private:
-    inline float readFrac (const std::vector<float>& buf, float delaySamples) const noexcept
-    {
-        const float d = std::clamp (delaySamples, 0.0f, static_cast<float> (erBufSize - 4));
-        const auto dInt = static_cast<size_t> (d);
-        const float frac = d - static_cast<float> (dInt);
-        const size_t idx0 = (erWritePos - dInt) & erMask;
-        const size_t idx1 = (idx0 - 1) & erMask;
-        return buf[idx0] * (1.0f - frac) + buf[idx1] * frac;
-    }
-
-    double sr = 44100.0;
-    size_t erBufSize = 16384, erMask = 16383, erWritePos = 0;
-    std::vector<float> erBufL, erBufR;
-    float airLpL = 0.0f, airLpR = 0.0f;
-
-    StereoBiquad midPhaseHpf, airPhaseHpf, deccaPhaseHpf;
-    SimpleAllPass apMidL, apMidR, apAirL, apAirR;
-    HadamardFDN roomFdn, chamberFdn;
-
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> preDelay { 48000 };
-    juce::dsp::Convolution customConvolver;
-    std::atomic<bool> customIRLoaded { false };
-    juce::String loadedIRName { "No IR Loaded" };
-};
+                const float airCoeff = juce::jmap (cfg.micY[2], 0
