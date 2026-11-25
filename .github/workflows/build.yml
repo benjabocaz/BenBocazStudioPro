@@ -11,6 +11,20 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Convert Assets to Standard PNG
+        shell: bash
+        run: |
+          if [ -d "Assets" ]; then
+            shopt -s nullglob nocaseglob
+            for f in Assets/*.jpg Assets/*.jpeg Assets/*.png Assets/*.webp Assets/*.heic; do
+              base="${f%.*}"
+              sips -s format png -Z 1600 "$f" --out "${base}_clean.png"
+              rm -f "$f"
+              mv "${base}_clean.png" "${base}.png"
+            done
+            ls -lh Assets
+          fi
+
       - name: Configure CMake
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64"
 
