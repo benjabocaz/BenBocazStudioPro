@@ -29,8 +29,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout BenBocazStudioProProcessor::
     p.push_back (std::make_unique<juce::AudioParameterFloat> ("vocalInGain",  "Mic Mod Input (dB)",  -18.0f, 18.0f, 0.0f));
     p.push_back (std::make_unique<juce::AudioParameterFloat> ("vocalOutGain", "Mic Mod Output (dB)", -18.0f, 18.0f, 0.0f));
 
-    // Sala Rústica independiente (ON/OFF), Fuente y Monitores
+    // Sala Rústica independiente (ON/OFF), Fuente, Monitores y Estéreo
     p.push_back (std::make_unique<juce::AudioParameterBool> ("roomOn", "Room Stage Power", true));
+    p.push_back (std::make_unique<juce::AudioParameterBool> ("mainStereo", "Main Mic Stereo", true));
+    p.push_back (std::make_unique<juce::AudioParameterFloat> ("pairSpread", "Mid/Air Pair Width", 0.0f, 1.5f, 1.0f));
+    p.push_back (std::make_unique<juce::AudioParameterFloat> ("deccaWidth", "Decca Tree Spread",  0.2f, 1.5f, 1.0f));
+
     p.push_back (std::make_unique<juce::AudioParameterChoice> (
         "source", "Source", juce::StringArray { "Vocals", "Drums", "Ensemble", "Monitors (Swedien)" }, 0));
     p.push_back (std::make_unique<juce::AudioParameterChoice> (
@@ -242,6 +246,9 @@ void BenBocazStudioProProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.wallsLive   = static_cast<int> (apvts.getRawParameterValue ("walls")->load());
         cfg.phaseSafe   = apvts.getRawParameterValue ("phaseAlign")->load() >= 0.5f;
         cfg.phaseInvert = apvts.getRawParameterValue ("phaseInvert")->load() >= 0.5f;
+        cfg.mainStereo  = apvts.getRawParameterValue ("mainStereo")->load() >= 0.5f;
+        cfg.pairSpread  = apvts.getRawParameterValue ("pairSpread")->load();
+        cfg.deccaWidth  = apvts.getRawParameterValue ("deccaWidth")->load();
 
         cfg.micX    = { apvts.getRawParameterValue ("mic1X")->load(), apvts.getRawParameterValue ("mic2X")->load(),
                         apvts.getRawParameterValue ("mic3X")->load(), apvts.getRawParameterValue ("mic4X")->load() };
