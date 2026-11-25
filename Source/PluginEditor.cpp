@@ -119,7 +119,7 @@ void RusticStudioLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleB
     g.fillEllipse (ledX - ledR, ledY - ledR, ledR * 2.0f, ledR * 2.0f);
 
     g.setColour (isOn ? juce::Colour (0xfffaf0dc) : juce::Colour (0xff9c8e7d));
-    g.setFont (juce::Font (juce::FontOptions (9.8f).withStyle ("Bold")));
+    g.setFont (juce::Font (juce::FontOptions (9.6f).withStyle ("Bold")));
     g.drawText (button.getButtonText(), area.withTrimmedLeft (18.0f).reduced (2.0f, 0.0f), juce::Justification::centredLeft);
 }
 
@@ -204,6 +204,7 @@ juce::Point<float> Studio4MicStagePad::getStandScreenPos (int idx, juce::Rectang
 void Studio4MicStagePad::paint (juce::Graphics& g)
 {
     auto area = getLocalBounds().toFloat().reduced (2.0f);
+    const bool roomIsOn = apvts.getRawParameterValue ("roomOn")->load() >= 0.5f;
 
     juce::Path clip;
     clip.addRoundedRectangle (area, 6.0f);
@@ -213,7 +214,7 @@ void Studio4MicStagePad::paint (juce::Graphics& g)
     if (roomImage.isValid())
     {
         g.drawImage (roomImage, area, juce::RectanglePlacement::fillDestination);
-        g.setColour (juce::Colour (0xff140e09).withAlpha (0.42f));
+        g.setColour (juce::Colour (0xff140e09).withAlpha (roomIsOn ? 0.42f : 0.76f));
         g.fillRect (area);
     }
     else
@@ -223,9 +224,9 @@ void Studio4MicStagePad::paint (juce::Graphics& g)
         g.setGradientFill (wood);
         g.fillRect (area);
         auto rug = area.reduced (55.0f, 38.0f);
-        g.setColour (juce::Colour (0xff6e2d1e).withAlpha (0.65f));
+        g.setColour (juce::Colour (0xff6e2d1e).withAlpha (roomIsOn ? 0.65f : 0.28f));
         g.fillRoundedRectangle (rug, 4.0f);
-        g.setColour (juce::Colour (0xffd69d46).withAlpha (0.45f));
+        g.setColour (juce::Colour (0xffd69d46).withAlpha (roomIsOn ? 0.45f : 0.2f));
         g.drawRoundedRectangle (rug.reduced (5.0f), 3.0f, 1.5f);
     }
     g.restoreState();
@@ -235,30 +236,39 @@ void Studio4MicStagePad::paint (juce::Graphics& g)
     const int sourceIdx = static_cast<int> (apvts.getRawParameterValue ("source")->load());
     const bool phaseOk  = apvts.getRawParameterValue ("phaseAlign")->load() >= 0.5f;
 
-    g.setColour (wallsLive ? juce::Colour (0xffd9a04a) : juce::Colour (0xff5c4f41));
-    g.drawRoundedRectangle (area, 6.0f, wallsLive ? 2.0f : 1.4f);
+    g.setColour ((roomIsOn && wallsLive) ? juce::Colour (0xffd9a04a) : juce::Colour (0xff5c4f41));
+    g.drawRoundedRectangle (area, 6.0f, (roomIsOn && wallsLive) ? 2.0f : 1.4f);
 
     auto topBar = area.reduced (8.0f).removeFromTop (16.0f);
-    g.setColour (juce::Colour (0xff140f0b).withAlpha (0.72f));
+    g.setColour (juce::Colour (0xff140f0b).withAlpha (0.76f));
     g.fillRoundedRectangle (topBar.expanded (4.0f, 2.0f), 3.0f);
 
-    g.setColour (juce::Colour (0xfff4d08c));
+    g.setColour (juce::Colour (0xfff4d08c).withAlpha (roomIsOn ? 1.0f : 0.55f));
     g.setFont (juce::Font (juce::FontOptions (10.0f).withStyle ("Bold")));
     juce::String roomTitle = (roomIdx == 0 ? "SHANGRI-LA LIVE ROOM" : "CANYON WOOD ROOM");
     roomTitle += (wallsLive ? "  •  CEDAR LIVE" : "  •  DAMPED");
     g.drawText (roomTitle, topBar, juce::Justification::centredLeft);
 
-    g.setColour (phaseOk ? juce::Colour (0xff8ce08e) : juce::Colour (0xffe8a94c));
-    g.drawText (phaseOk ? "PHASE LOCKED" : "FREE ACOUSTIC DELAY", topBar, juce::Justification::centredRight);
+    if (! roomIsOn)
+    {
+        g.setColour (juce::Colour (0xffc99e6b));
+        g.drawText ("ROOM BYPASSED (DRY)", topBar, juce::Justification::centredRight);
+    }
+    else
+    {
+        g.setColour (phaseOk ? juce::Colour (0xff8ce08e) : juce::Colour (0xffe8a94c));
+        g.drawText (phaseOk ? "PHASE LOCKED" : "FREE ACOUSTIC DELAY", topBar, juce::Justification::centredRight);
+    }
 
     const float srcX = area.getCentreX();
     const float srcY = area.getY() + 42.0f;
+    const float stageAlpha = roomIsOn ? 1.0f : 0.35f;
 
-    g.setColour (juce::Colour (0xff120d09).withAlpha (0.82f));
+    g.setColour (juce::Colour (0xff120d09).withAlpha (0.82f * stageAlpha));
     if (sourceIdx == 3)
     {
         g.fillRoundedRectangle (srcX - 42.0f, srcY - 11.0f, 84.0f, 22.0f, 4.0f);
-        g.setColour (juce::Colour (0xfff2e6d0));
+        g.setColour (juce::Colour (0xfff2e6d0).withAlpha (stageAlpha));
         g.drawRoundedRectangle (srcX - 42.0f, srcY - 11.0f, 84.0f, 22.0f, 4.0f, 1.3f);
         g.setFont (juce::Font (juce::FontOptions (9.2f).withStyle ("Bold")));
         g.drawText ("MONITORS L/R", static_cast<int> (srcX - 42), static_cast<int> (srcY - 11), 84, 22, juce::Justification::centred);
@@ -266,7 +276,7 @@ void Studio4MicStagePad::paint (juce::Graphics& g)
     else
     {
         g.fillRoundedRectangle (srcX - 34.0f, srcY - 11.0f, 68.0f, 22.0f, 4.0f);
-        g.setColour (juce::Colour (0xfff2e6d0));
+        g.setColour (juce::Colour (0xfff2e6d0).withAlpha (stageAlpha));
         g.drawRoundedRectangle (srcX - 34.0f, srcY - 11.0f, 68.0f, 22.0f, 4.0f, 1.3f);
         juce::String lbl = (sourceIdx == 0 ? "VOCALS" : (sourceIdx == 1 ? "DRUMS" : "ENSEMBLE"));
         g.setFont (juce::Font (juce::FontOptions (9.2f).withStyle ("Bold")));
@@ -289,7 +299,7 @@ void Studio4MicStagePad::paint (juce::Graphics& g)
         const float gain = apvts.getRawParameterValue ("mic" + juce::String (i + 1) + "Gain")->load();
         const float my   = apvts.getRawParameterValue ("mic" + juce::String (i + 1) + "Y")->load();
         const float distM = juce::jmap (my, 0.0f, 1.0f, 0.8f, roomD - 1.5f);
-        const float alpha = gain > 0.01f ? 1.0f : 0.35f;
+        const float alpha = (gain > 0.01f ? 1.0f : 0.35f) * stageAlpha;
 
         g.setColour (cols[static_cast<size_t> (i)].withAlpha (0.28f * alpha));
         g.drawLine (srcX, srcY + 11.0f, pos.x, pos.y, i == selectedStand ? 1.8f : 1.0f);
@@ -303,13 +313,13 @@ void Studio4MicStagePad::paint (juce::Graphics& g)
             g.fillEllipse (pos.x + 13.0f, pos.y + 3.0f, 6.0f, 6.0f);
         }
 
-        if (i == selectedStand)
+        if (i == selectedStand && roomIsOn)
         {
             g.setColour (cols[static_cast<size_t> (i)].withAlpha (0.28f));
             g.fillEllipse (pos.x - 15.0f, pos.y - 15.0f, 30.0f, 30.0f);
         }
 
-        g.setColour (juce::Colour (0xff120d0a).withAlpha (0.85f));
+        g.setColour (juce::Colour (0xff120d0a).withAlpha (0.85f * stageAlpha));
         g.fillEllipse (pos.x - 10.0f, pos.y - 10.0f, 20.0f, 20.0f);
         g.setColour (cols[static_cast<size_t> (i)].withAlpha (alpha));
         g.drawEllipse (pos.x - 9.5f, pos.y - 9.5f, 19.0f, 19.0f, 2.0f);
@@ -318,7 +328,7 @@ void Studio4MicStagePad::paint (juce::Graphics& g)
         g.drawText (juce::String (i + 1), static_cast<int> (pos.x - 9), static_cast<int> (pos.y - 9), 18, 18, juce::Justification::centred);
 
         const juce::String tag = names[static_cast<size_t> (i)] + " " + juce::String (distM, 1) + "m";
-        g.setColour (juce::Colour (0xff120d0a).withAlpha (0.78f));
+        g.setColour (juce::Colour (0xff120d0a).withAlpha (0.78f * stageAlpha));
         g.fillRoundedRectangle (pos.x - 32.0f, pos.y + 11.0f, 64.0f, 13.0f, 3.0f);
         g.setColour (cols[static_cast<size_t> (i)].withAlpha (alpha));
         g.setFont (juce::Font (juce::FontOptions (8.4f).withStyle ("Bold")));
@@ -380,6 +390,7 @@ BenBocazStudioProEditor::BenBocazStudioProEditor (BenBocazStudioProProcessor& p)
     addAndMakeVisible (phaseAlignBtn);
     addAndMakeVisible (phaseInvBtn);
     addAndMakeVisible (vocalModBtn);
+    addAndMakeVisible (roomOnBtn);
     addAndMakeVisible (chamberOnBtn);
     addAndMakeVisible (eqOnBtn);
     addAndMakeVisible (compOnBtn);
@@ -413,6 +424,8 @@ BenBocazStudioProEditor::BenBocazStudioProEditor (BenBocazStudioProProcessor& p)
     setupCombo (eqTypeBox,   { "Neve 1073 (British)", "Pultec EQP-1A (Tube)", "API 550A (Punch)", "SSL 4000E (Clean)" }, eqTypeLbl, "EQ MODEL");
     setupCombo (compBox,     { "1176LN (FET)", "LA-2A (Opto)", "Mastering (Tube)" }, compLbl, "COMP MODEL");
 
+    setupKnob (vocalInSlider,    vocalInLbl,    "MIC IN");
+    setupKnob (vocalOutSlider,   vocalOutLbl,   "MIC OUT");
     setupKnob (driveSlider,      driveLbl,      "TUBE / TAPE DRIVE");
     setupKnob (mic1GainSlider,   mic1GainLbl,   "1: MAIN LVL");
     setupKnob (mic2GainSlider,   mic2GainLbl,   "2: MID LVL");
@@ -433,6 +446,7 @@ BenBocazStudioProEditor::BenBocazStudioProEditor (BenBocazStudioProProcessor& p)
     phaseAlignAtt = std::make_unique<ButtonAtt> (v, "phaseAlign", phaseAlignBtn);
     phaseInvAtt   = std::make_unique<ButtonAtt> (v, "phaseInvert", phaseInvBtn);
     vocalModAtt   = std::make_unique<ButtonAtt> (v, "vocalModOn", vocalModBtn);
+    roomOnAtt     = std::make_unique<ButtonAtt> (v, "roomOn", roomOnBtn);
     chamberOnAtt  = std::make_unique<ButtonAtt> (v, "chamberOn", chamberOnBtn);
     eqOnAtt       = std::make_unique<ButtonAtt> (v, "eqOn", eqOnBtn);
     compOnAtt     = std::make_unique<ButtonAtt> (v, "compOn", compOnBtn);
@@ -449,6 +463,8 @@ BenBocazStudioProEditor::BenBocazStudioProEditor (BenBocazStudioProProcessor& p)
     eqTypeAtt   = std::make_unique<ComboAtt> (v, "eqType", eqTypeBox);
     compAtt     = std::make_unique<ComboAtt> (v, "compType", compBox);
 
+    vocalInAtt    = std::make_unique<SliderAtt> (v, "vocalInGain", vocalInSlider);
+    vocalOutAtt   = std::make_unique<SliderAtt> (v, "vocalOutGain", vocalOutSlider);
     driveAtt      = std::make_unique<SliderAtt> (v, "consoleDrive", driveSlider);
     mic1GainAtt   = std::make_unique<SliderAtt> (v, "mic1Gain", mic1GainSlider);
     mic2GainAtt   = std::make_unique<SliderAtt> (v, "mic2Gain", mic2GainSlider);
@@ -514,7 +530,7 @@ void BenBocazStudioProEditor::setupKnob (juce::Slider& slider, juce::Label& labe
     label.setText (text, juce::dontSendNotification);
     label.setJustificationType (juce::Justification::centred);
     label.setColour (juce::Label::textColourId, juce::Colour (0xffe6ab50));
-    label.setFont (juce::Font (juce::FontOptions (9.8f).withStyle ("Bold")));
+    label.setFont (juce::Font (juce::FontOptions (9.6f).withStyle ("Bold")));
     addAndMakeVisible (label);
 }
 
@@ -599,8 +615,9 @@ void BenBocazStudioProEditor::paint (juce::Graphics& g)
     drawPanel ({ 596, 464, 382, 236 }, "OUTBOARD COMPRESSOR");
     drawPanel ({ 990, 464, 146, 236 }, "MASTER");
 
+    // Separador entre Vocal Mic Mod (con su In/Out) y Room Source / Drive
     g.setColour (juce::Colour (0xff614e39).withAlpha (0.55f));
-    g.drawHorizontalLine (190, 36.0f, 282.0f);
+    g.drawHorizontalLine (263, 36.0f, 282.0f);
 }
 
 void BenBocazStudioProEditor::resized()
@@ -612,25 +629,30 @@ void BenBocazStudioProEditor::resized()
     vuMeter.setBounds       (794, 8,  250, 60);
     vuModeBtn.setBounds     (1054, 22, 82, 28);
 
-    vocalModBtn.setBounds (36,  112, 246, 24);
-    vocalSrcLbl.setBounds (36,  142, 118, 13); vocalSrcBox.setBounds (36,  156, 118, 23);
-    vocalTgtLbl.setBounds (164, 142, 118, 13); vocalTgtBox.setBounds (164, 156, 118, 23);
+    // Panel Izquierdo Superior: Vocal Mic Mod + Input / Output independientes
+    vocalModBtn.setBounds    (36,  110, 246, 22);
+    vocalSrcLbl.setBounds    (36,  136, 118, 12); vocalSrcBox.setBounds    (36,  149, 118, 22);
+    vocalTgtLbl.setBounds    (164, 136, 118, 12); vocalTgtBox.setBounds    (164, 149, 118, 22);
+    vocalInLbl.setBounds     (48,  177, 94,  12); vocalInSlider.setBounds  (58,  189, 74,  68);
+    vocalOutLbl.setBounds    (176, 177, 94,  12); vocalOutSlider.setBounds (186, 189, 74,  68);
 
-    sourceLbl.setBounds   (36,  198, 118, 13); sourceBox.setBounds   (36,  212, 118, 23);
-    monitorLbl.setBounds  (164, 198, 118, 13); monitorBox.setBounds  (164, 212, 118, 23);
-    roomLbl.setBounds     (36,  244, 118, 13); roomBox.setBounds     (36,  258, 118, 23);
-    wallsLbl.setBounds    (164, 244, 118, 13); wallsBox.setBounds    (164, 258, 118, 23);
+    // Panel Izquierdo Inferior: Room Source + Tube Drive
+    sourceLbl.setBounds   (36,  269, 118, 12); sourceBox.setBounds   (36,  282, 118, 21);
+    monitorLbl.setBounds  (164, 269, 118, 12); monitorBox.setBounds  (164, 282, 118, 21);
+    roomLbl.setBounds     (36,  309, 118, 12); roomBox.setBounds     (36,  322, 118, 21);
+    wallsLbl.setBounds    (164, 309, 118, 12); wallsBox.setBounds    (164, 322, 118, 21);
+    driveLbl.setBounds    (92,  351, 134, 12); driveSlider.setBounds (119, 364, 80,  78);
 
-    driveLbl.setBounds    (92,  302, 134, 14);
-    driveSlider.setBounds (113, 320, 92, 102);
-
-    roomPad.setBounds (318, 110, 496, 236);
+    // Panel Central: Sala 2D + Botón ROOM ON + 4 Atriles
+    roomOnBtn.setBounds   (730, 89,  86,  20);
+    roomPad.setBounds     (318, 114, 496, 232);
 
     mic1GainLbl.setBounds (328, 354, 106, 13); mic1GainSlider.setBounds (338, 368, 86, 76);
     mic2GainLbl.setBounds (450, 354, 106, 13); mic2GainSlider.setBounds (460, 368, 86, 76);
     mic3GainLbl.setBounds (572, 354, 106, 13); mic3GainSlider.setBounds (582, 368, 86, 76);
     mic4GainLbl.setBounds (694, 354, 106, 13); mic4GainSlider.setBounds (704, 368, 86, 76);
 
+    // Panel Derecho: Cámaras + Botón ON + IR
     chamberOnBtn.setBounds (1052, 90, 72, 20);
     chamberLbl.setBounds   (852, 116, 160, 13); chamberBox.setBounds (852, 130, 270, 24);
     loadIRBtn.setBounds    (852, 162, 116, 24); irNameLbl.setBounds  (974, 162, 148, 24);
@@ -640,6 +662,7 @@ void BenBocazStudioProEditor::resized()
     chPreLbl.setBounds   (874, 322, 92, 13); chPreSlider.setBounds   (877, 336, 86, 90);
     chWidthLbl.setBounds (1004, 322, 92, 13); chWidthSlider.setBounds (1007, 336, 86, 90);
 
+    // Panel Inferior Izquierdo: Console EQ
     eqOnBtn.setBounds   (496, 469, 76, 22);
     eqTypeLbl.setBounds (42,  498, 80, 14); eqTypeBox.setBounds (122, 494, 220, 24);
 
@@ -648,9 +671,11 @@ void BenBocazStudioProEditor::resized()
     eqMidLbl.setBounds  (312, 538, 96, 14); eqMidSlider.setBounds  (312, 554, 96, 110);
     eqHighLbl.setBounds (442, 538, 96, 14); eqHighSlider.setBounds (442, 554, 96, 110);
 
+    // Panel Inferior Centro: Compresor
     compOnBtn.setBounds     (886, 469, 80, 22);
     compLbl.setBounds       (614, 536, 175, 14); compBox.setBounds       (614, 554, 185, 28);
     compThreshLbl.setBounds (830, 538, 102, 14); compThreshSlider.setBounds (833, 554, 96, 110);
 
+    // Panel Inferior Derecho: Master Output
     outGainLbl.setBounds    (1015, 538, 96, 14); outGainSlider.setBounds (1015, 554, 96, 110);
 }
