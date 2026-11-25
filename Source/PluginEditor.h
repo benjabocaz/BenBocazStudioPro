@@ -80,6 +80,7 @@ private:
     juce::ToggleButton phaseAlignBtn { "PHASE SAFE" };
     juce::ToggleButton phaseInvBtn   { "POLARITY INV" };
     juce::ToggleButton vocalModBtn   { "VOCAL MIC MOD" };
+    juce::ToggleButton mainStereoBtn { "MAIN STEREO" };
     juce::ToggleButton roomOnBtn     { "ROOM ON" };
     juce::ToggleButton chamberOnBtn  { "ON" };
     juce::ToggleButton eqOnBtn       { "EQ ON" };
@@ -100,12 +101,14 @@ private:
 
     juce::Slider vocalInSlider, vocalOutSlider, driveSlider;
     juce::Slider mic1GainSlider, mic2GainSlider, mic3GainSlider, mic4GainSlider;
+    juce::Slider pairWidthSlider, deccaWidthSlider;
     juce::Slider chMixSlider, chDecaySlider, chPreSlider, chWidthSlider;
     juce::Slider eqHpfSlider, eqLowSlider, eqMidSlider, eqHighSlider;
     juce::Slider compThreshSlider, outGainSlider;
 
     juce::Label vocalInLbl, vocalOutLbl, driveLbl;
     juce::Label mic1GainLbl, mic2GainLbl, mic3GainLbl, mic4GainLbl;
+    juce::Label pairWidthLbl, deccaWidthLbl;
     juce::Label chMixLbl, chDecayLbl, chPreLbl, chWidthLbl;
     juce::Label eqHpfLbl, eqLowLbl, eqMidLbl, eqHighLbl;
     juce::Label compThreshLbl, outGainLbl;
@@ -114,13 +117,14 @@ private:
     using SliderAtt = juce::AudioProcessorValueTreeState::SliderAttachment;
     using ButtonAtt = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    std::unique_ptr<ButtonAtt> phaseAlignAtt, phaseInvAtt, vocalModAtt, roomOnAtt, chamberOnAtt, eqOnAtt, compOnAtt;
+    std::unique_ptr<ButtonAtt> phaseAlignAtt, phaseInvAtt, vocalModAtt, mainStereoAtt, roomOnAtt, chamberOnAtt, eqOnAtt, compOnAtt;
     std::unique_ptr<ComboAtt>  modeAtt, chainAtt, vocalSrcAtt, vocalTgtAtt;
     std::unique_ptr<ComboAtt>  sourceAtt, monitorAtt, roomAtt, wallsAtt;
     std::unique_ptr<ComboAtt>  chamberAtt, eqTypeAtt, compAtt;
 
     std::unique_ptr<SliderAtt> vocalInAtt, vocalOutAtt, driveAtt;
     std::unique_ptr<SliderAtt> mic1GainAtt, mic2GainAtt, mic3GainAtt, mic4GainAtt;
+    std::unique_ptr<SliderAtt> pairWidthAtt, deccaWidthAtt;
     std::unique_ptr<SliderAtt> chMixAtt, chDecayAtt, chPreAtt, chWidthAtt;
     std::unique_ptr<SliderAtt> eqHpfAtt, eqLowAtt, eqMidAtt, eqHighAtt;
     std::unique_ptr<SliderAtt> compThreshAtt, outGainAtt;
