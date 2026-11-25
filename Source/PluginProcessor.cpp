@@ -216,19 +216,16 @@ void BenBocazStudioProProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
-    // Protección para pistas Mono -> Estéreo en Logic Pro: asegura L == R al entrar
     if (getTotalNumInputChannels() == 1 && buffer.getNumChannels() >= 2)
         buffer.copyFrom (1, 0, buffer, 0, 0, buffer.getNumSamples());
 
     updateFilters();
 
-    // 1. Emulador Vocal Mic Mod (Input -> Curva + Válvula -> Output), independiente de la sala
     const bool vocalModOn = apvts.getRawParameterValue ("vocalModOn")->load() >= 0.5f;
     const float vocalIn   = apvts.getRawParameterValue ("vocalInGain")->load();
     const float vocalOut  = apvts.getRawParameterValue ("vocalOutGain")->load();
     vocalMicModeler.process (buffer, vocalModOn, vocalIn, vocalOut);
 
-    // 2. Sala Rústica + 4 Atriles (con interruptor ROOM ON independiente)
     const bool roomOn   = apvts.getRawParameterValue ("roomOn")->load() >= 0.5f;
     const int sourceIdx = static_cast<int> (apvts.getRawParameterValue ("source")->load());
 
@@ -251,3 +248,47 @@ void BenBocazStudioProProcessor::processBlock (juce::AudioBuffer<float>& buffer,
         cfg.micY    = { apvts.getRawParameterValue ("mic1Y")->load(), apvts.getRawParameterValue ("mic2Y")->load(),
                         apvts.getRawParameterValue ("mic3Y")->load(), apvts.getRawParameterValue ("mic4Y")->load() };
         cfg.micGain = { apvts.getRawParameterValue ("mic1Gain")->load(), apvts.getRawParameterValue ("mic2Gain")->load(),
+                        apvts.getRawParameterValue ("mic3Gain")->load(), apvts.getRawParameterValue ("mic4Gain")->load() };
+
+        acousticEngine.processMultiMicRoom (buffer, cfg);
+    }
+
+    const float drive = apvts.getRawParameterValue ("consoleDrive")->load();
+    analogStage.process (buffer, drive, roomOn && sourceIdx == 3);
+
+    const int order = static_cast<int> (apvts.getRawParameterValue ("chainOrder")->load());
+    if (order == 0)      { processConsoleEQ (buffer); processCompressorStage (buffer); processChamberStage (buffer); }
+    else if (order == 1) { processCompressorStage (buffer); processConsoleEQ (buffer); processChamberStage (buffer); }
+    else                 { processChamberStage (buffer); processCompressorStage (buffer); processConsoleEQ (buffer); }
+
+    const float outGain = juce::Decibels::decibelsToGain (apvts.getRawParameterValue ("outputGain")->load());
+    buffer.applyGain (outGain);
+
+    const float rms = 0.5f * (buffer.getRMSLevel (0, 0, buffer.getNumSamples())
+                            + (buffer.getNumChannels() > 1 ? buffer.getRMSLevel (1, 0, buffer.getNumSamples()) : 0.0f));
+    outputVuDb.store (juce::Decibels::gainToDecibels (rms + 1e-6f));
+}
+
+juce::AudioProcessorEditor* BenBocazStudioProProcessor::createEditor()
+{
+    return new BenBocazStudioProEditor (*this);
+}
+
+void BenBocazStudioProProcessor::getStateInformation (juce::MemoryBlock& destData)
+{
+    auto state = apvts.copyState();
+    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    copyXmlToBinary (*xml, destData);
+}
+
+void BenBocazStudioProProcessor::setStateInformation (const void* data, int sizeInBytes)
+{
+    std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
+    if (xmlState && xmlState->hasTagName (apvts.state.getType()))
+        apvts.replaceState (juce::ValueTree::fromXml (*xmlState));
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
+{
+    return new BenBocazStudioProProcessor();
+}
