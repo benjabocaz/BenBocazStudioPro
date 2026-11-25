@@ -73,9 +73,13 @@ public:
         }
     }
 
-    void process (juce::AudioBuffer<float>& buffer, bool enabled)
+    void process (juce::AudioBuffer<float>& buffer, bool enabled, float inputDb, float outputDb)
     {
         if (! enabled) return;
+
+        // Ganancia de entrada independiente (empuja la saturación de válvula/circuito del mic)
+        const float inGain = juce::Decibels::decibelsToGain (inputDb);
+        buffer.applyGain (inGain);
 
         invLow.processBuffer (buffer);
         invMid.processBuffer (buffer);
@@ -86,12 +90,12 @@ public:
         tgtHigh.processBuffer (buffer);
 
         float drive = 0.0f, asym = 0.0f;
-        if (targetIdx == 0)      { drive = 0.24f; asym = 0.055f; } // C-800G Tube
-        else if (targetIdx == 1) { drive = 0.04f; asym = 0.005f; } // TLM 103
-        else                     { drive = 0.16f; asym = 0.030f; } // Aston Origin
+        if (targetIdx == 0)      { drive = 0.24f; asym = 0.055f; } // C-800G Tube 6AU6
+        else if (targetIdx == 1) { drive = 0.04f; asym = 0.005f; } // TLM 103 Transformerless
+        else                     { drive = 0.16f; asym = 0.030f; } // Aston Origin Class-A
 
         const float pre = 1.0f + drive * 1.6f;
-        const float post = 1.0f / (1.0f + drive * 0.72f);
+        const float post = (1.0f / (1.0f + drive * 0.72f)) * juce::Decibels::decibelsToGain (outputDb);
         const float biasComp = std::tanh (asym);
 
         const int numCh = std::min (2, buffer.getNumChannels());
